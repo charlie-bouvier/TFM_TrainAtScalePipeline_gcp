@@ -3,6 +3,8 @@ from math import sqrt
 
 import joblib
 import pandas as pd
+from google.cloud import storage
+
 
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
@@ -12,6 +14,19 @@ AWS_BUCKET_TEST_PATH = "s3://wagon-public-datasets/taxi-fare-test.csv"
 
 BUCKET_NAME = 'wagon-data-753-bouvier'
 
+def clean_data(df, test=False):
+    df = df.dropna(how='any', axis='rows')
+    df = df[(df.dropoff_latitude != 0) | (df.dropoff_longitude != 0)]
+    df = df[(df.pickup_latitude != 0) | (df.pickup_longitude != 0)]
+    if "fare_amount" in list(df):
+        df = df[df.fare_amount.between(0, 4000)]
+    df = df[df.passenger_count < 8]
+    df = df[df.passenger_count >= 0]
+    df = df[df["pickup_latitude"].between(left=40, right=42)]
+    df = df[df["pickup_longitude"].between(left=-74.3, right=-72.9)]
+    df = df[df["dropoff_latitude"].between(left=40, right=42)]
+    df = df[df["dropoff_longitude"].between(left=-74, right=-72.9)]
+    return df
 
 def get_test_data(nrows, data="s3"):
     """method to get the test data (or a portion of it) from google cloud bucket
@@ -30,8 +45,7 @@ def get_test_data(nrows, data="s3"):
 def download_model(model_directory="PipelineTest", bucket=BUCKET_NAME, rm=True):
     client = storage.Client().bucket(bucket)
 
-    storage_location = 'models/{}/versions/{}/{}'.format(
-        MODEL_NAME,
+    storage_location = 'models/{}/{}'.format(
         model_directory,
         'model.joblib')
     blob = client.blob(storage_location)
@@ -56,7 +70,8 @@ def evaluate_model(y, y_pred):
 
 def generate_submission_csv(nrows, kaggle_upload=False):
     df_test = get_test_data(nrows)
-    pipeline = joblib.load(PATH_TO_LOCAL_MODEL)
+    df_test = clean_data(df_test)
+    pipeline = download_model(model_directory="simpletaxifare")
     if "best_estimator_" in dir(pipeline):
         y_pred = pipeline.best_estimator_.predict(df_test)
     else:
